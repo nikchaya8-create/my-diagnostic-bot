@@ -1,11 +1,9 @@
 import logging
 import os
 import sqlite3
-import asyncio
-from aiohttp import web
-from aiogram import Bot, Dispatcher, types
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.utils import executor
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import telebot
 import google.generativeai as genai
 
 # Настройки конфигурации
@@ -14,7 +12,7 @@ INVITE_CODE = "start"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "ВАШ_GEMINI_API_KEY")
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Инициализация ИИ
 genai.configure(api_key=GEMINI_API_KEY)
@@ -30,104 +28,112 @@ At the end, ask if they have any follow-up questions about this analysis."""
 )
 
 # Инициализация Telegram Бота
-bot = Bot(token=API_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
-
-# Веб-сервер для прохождения Port Check на Render.com
-async def handle_ping(request):
-    return web.Response(text="Bot is running!")
-
-async def start_web_server():
-    app = web.Application()
-    app.router.add_get('/', handle_ping)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", "8080"))
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    logging.info(f"Web server started on port {port}")
-
-async def on_startup(dp):
-    # Запускаем фоновый веб-сервер
-    asyncio.create_task(start_web_server())
+bot = telebot.TeleBot(API_TOKEN)
 
 # База данных для истории диалогов и проверки доступа
-conn = sqlite3.connect("bot_database.db", check_same_thread=False)
-cursor = conn.cursor()
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
-        has_access INTEGER DEFAULT 0
-    )
-""")
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS chat_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        role TEXT,
-        content TEXT
-    )
-""")
-conn.commit()
+DB_FILE = "bot_database.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            has_access INTEGER DEFAULT 0
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            role TEXT,
+            content TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
 
 def check_user_access(user_id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
     cursor.execute("SELECT has_access FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
+    conn.close()
     return row and row[0] == 1
 
 def grant_user_access(user_id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
     cursor.execute("INSERT OR REPLACE INTO users (user_id, has_access) VALUES (?, 1)", (user_id,))
     conn.commit()
+    conn.close()
 
 def save_message(user_id, role, content):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
     cursor.execute("INSERT INTO chat_history (user_id, role, content) VALUES (?, ?, ?)", (user_id, role, content))
     conn.commit()
+    conn.close()
 
 def get_chat_history(user_id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
     cursor.execute("SELECT role, content FROM chat_history WHERE user_id = ? ORDER BY id ASC", (user_id,))
     rows = cursor.fetchall()
+    conn.close()
     history = []
     for role, content in rows:
         history.append({"role": "user" if role == "user" else "model", "parts": [content]})
     return history
 
-@dp.message_handler(commands=['start'])
-async def send_welcome(message: types.Message):
-    args = message.get_args()
+# Команда /start
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
     user_id = message.from_user.id
+    # Получаем аргументы команды /start <код>
+    args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+    arg = args[0] if args else ""
     
-    if args == INVITE_CODE or check_user_access(user_id):
+    if arg == INVITE_CODE or check_user_access(user_id):
         grant_user_access(user_id)
+        
+        # Очищаем историю чата при новом старте
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        
         welcome_text = """Приветствую! Я бот ИИ-диагностики. Пришлите вашу дату рождения и ответы на тест одним сообщением для получения полного разбора.
 
 Вопросы теста:
 1. Опишите ваше главное стремление в жизни?
 2. Что пугает вас сильнее всего?
 3. Какой ваш идеальный день?"""
-        await message.reply(welcome_text)
-        # Очищаем прошлую историю при новом старте по ссылке
-        cursor.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
-        conn.commit()
+        bot.reply_to(message, welcome_text)
     else:
-        await message.reply(
+        bot.reply_to(
+            message,
             "⚠️ Доступ ограничен! Этот бот доступен только по специальной пригласительной ссылке.\n"
             "Пожалуйста, используйте ссылку, предоставленную вашим куратором."
         )
 
-@dp.message_handler()
-async def handle_chat(message: types.Message):
+# Обработка всех остальных текстовых сообщений
+@bot.message_handler(func=lambda message: True)
+def handle_chat(message):
     user_id = message.from_user.id
     
     if not check_user_access(user_id):
-        await message.reply("⚠️ Доступ ограничен! Пожалуйста, перейдите по ссылке-приглашению для активации бота.")
+        bot.reply_to(message, "⚠️ Доступ ограничен! Пожалуйста, перейдите по ссылке-приглашению для активации бота.")
         return
 
     user_text = message.text
     save_message(user_id, "user", user_text)
 
     # Показываем статус "печатает"
-    await bot.send_chat_action(chat_id=message.chat.id, action=types.ChatActions.TYPING)
+    bot.send_chat_action(message.chat.id, 'typing')
 
     try:
         # Получаем историю чата
@@ -140,11 +146,32 @@ async def handle_chat(message: types.Message):
         ai_response = response.text
         save_message(user_id, "model", ai_response)
         
-        await message.reply(ai_response, parse_mode="Markdown")
+        bot.reply_to(message, ai_response, parse_mode="Markdown")
         
     except Exception as e:
         logging.error(f"Error calling Gemini: {e}")
-        await message.reply("Произошла ошибка при обработке вашего запроса ИИ. Попробуйте написать позже.")
+        bot.reply_to(message, "Произошла ошибка при обработке вашего запроса ИИ. Попробуйте написать позже.")
+
+# Простой веб-сервер для прохождения Port Check на Render.com (запускается в фоновом потоке)
+class PingHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain; charset=utf-8')
+        self.end_headers()
+        self.wfile.write("Бот запущен и работает!".encode('utf-8'))
+
+def run_web_server():
+    port = int(os.environ.get("PORT", "8080"))
+    server = HTTPServer(('0.0.0.0', port), PingHandler)
+    logging.info(f"Фоновый веб-сервер запущен на порту {port}")
+    server.serve_forever()
 
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+    # Запускаем фоновый веб-сервер в отдельном потоке
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+    
+    # Запуск бота в режиме бесконечного опроса (polling)
+    logging.info("Бот запущен...")
+    bot.infinity_polling()
+
