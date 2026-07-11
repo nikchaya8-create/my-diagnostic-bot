@@ -7,24 +7,32 @@ import telebot
 import google.generativeai as genai
 
 # Настройки конфигурации
-API_TOKEN = "BOT_TOKEN_PLACEHOLDER"
+API_TOKEN = os.getenv("TELEGRAM_TOKEN", "BOT_TOKEN_PLACEHOLDER")
 INVITE_CODE = "start"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "ВАШ_GEMINI_API_KEY")
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Проверка токена и ключей перед запуском
+if not API_TOKEN or ":" not in API_TOKEN or "ВАШ_ТЕЛЕГРАМ_ТОКЕН" in API_TOKEN:
+    logging.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Токен Telegram не указан или указан неверно!")
+    logging.error("Убедитесь, что вы добавили переменную окружения TELEGRAM_TOKEN в настройках Render (вкладка Environment).")
+    logging.error("Токен от BotFather должен содержать двоеточие, например: 123456:ABC-DEF1234ghIkl-zyx57W2v1u1")
+    import sys
+    sys.exit(1)
+
+if not GEMINI_API_KEY or "ВАШ_GEMINI_API_KEY" in GEMINI_API_KEY:
+    logging.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Ключ API Gemini не указан!")
+    logging.error("Пожалуйста, добавьте переменную окружения GEMINI_API_KEY в настройках Render -> Environment")
+    import sys
+    sys.exit(1)
+
 # Инициализация ИИ
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel(
     model_name="gemini-1.5-flash",
-    system_instruction="""You are an expert diagnostic assistant. Your task is to analyze the user's birthdate and their answers to the psychological test, and deliver a comprehensive personality profile.
-Use the following methodology for analysis:
-1. Astrological / Numerological profile based on their birthdate.
-2. Character traits, strengths, and hidden blind spots based on test answers.
-3. Actionable recommendation (1-3 tips) for daily life.
-Keep the tone helpful, professional, and slightly mystical but grounded in psychological insights.
-At the end, ask if they have any follow-up questions about this analysis."""
+    system_instruction="You are an expert diagnostic assistant. Your task is to analyze the user's birthdate and their answers to the psychological test, and deliver a comprehensive personality profile.\nUse the following methodology for analysis:\n1. Astrological / Numerological profile based on their birthdate.\n2. Character traits, strengths, and hidden blind spots based on test answers.\n3. Actionable recommendation (1-3 tips) for daily life.\nKeep the tone helpful, professional, and slightly mystical but grounded in psychological insights.\nAt the end, ask if they have any follow-up questions about this analysis."
 )
 
 # Инициализация Telegram Бота
@@ -106,12 +114,7 @@ def send_welcome(message):
         conn.commit()
         conn.close()
         
-        welcome_text = """Приветствую! Я бот ИИ-диагностики. Пришлите вашу дату рождения и ответы на тест одним сообщением для получения полного разбора.
-
-Вопросы теста:
-1. Опишите ваше главное стремление в жизни?
-2. Что пугает вас сильнее всего?
-3. Какой ваш идеальный день?"""
+        welcome_text = "Приветствую! Я бот ИИ-диагностики. Пришлите вашу дату рождения и ответы на тест одним сообщением для получения полного разбора.\n\nВопросы теста:\n1. Опишите ваше главное стремление в жизни?\n2. Что пугает вас сильнее всего?\n3. Какой ваш идеальный день?"
         bot.reply_to(message, welcome_text)
     else:
         bot.reply_to(
@@ -174,4 +177,3 @@ if __name__ == '__main__':
     # Запуск бота в режиме бесконечного опроса (polling)
     logging.info("Бот запущен...")
     bot.infinity_polling()
-
