@@ -158,27 +158,17 @@ def handle_chat(message):
         if "api_key_invalid" in error_msg.lower() or "api key" in error_msg.lower() or "not found" in error_msg.lower() or "invalid" in error_msg.lower():
             bot.reply_to(
                 message,
-                "⚠️ Ошибка ИИ: Проблема с API-ключом Gemini!
-
-"
-                "Пожалуйста, убедитесь, что вы правильно добавили переменную окружения GEMINI_API_KEY в настройках Render (вкладка Environment) и перезапустили деплой."
+                "⚠️ Ошибка ИИ: Проблема с API-ключом Gemini!\n\nПожалуйста, убедитесь, что вы правильно добавили переменную окружения GEMINI_API_KEY в настройках Render (вкладка Environment) и перезапустили деплой."
             )
         elif "quota" in error_msg.lower() or "limit" in error_msg.lower() or "429" in error_msg:
             bot.reply_to(
                 message,
-                "⚠️ Ошибка ИИ: Превышен лимит запросов (Quota Exceeded)!
-
-"
-                "Пожалуйста, проверьте ваш лимит запросов Gemini или создайте новый API-ключ в Google AI Studio."
+                "⚠️ Ошибка ИИ: Превышен лимит запросов (Quota Exceeded)!\n\nПожалуйста, проверьте ваш лимит запросов Gemini или создайте новый API-ключ в Google AI Studio."
             )
         else:
             bot.reply_to(
                 message,
-                f"⚠️ Ошибка при запросе к ИИ:
-
-`{error_msg}`
-
-Пожалуйста, убедитесь, что вы добавили переменную окружения GEMINI_API_KEY в настройках Render!"
+                f"⚠️ Ошибка при запросе к ИИ:\n\n`{error_msg}`\n\nПожалуйста, убедитесь, что вы добавили переменную окружения GEMINI_API_KEY в настройках Render!"
             )
 
 # Простой веб-сервер для прохождения Port Check на Render.com (запускается в фоновом потоке)
