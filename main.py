@@ -35,7 +35,7 @@ if not GEMINI_API_KEY or "ВАШ_GEMINI_API_KEY" in GEMINI_API_KEY:
 # Инициализация ИИ
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel(
-    model_name="gemini-2.5-flash",
+    model_name="gemini-3.5-flash",
     system_instruction="You are an expert diagnostic assistant. Your task is to analyze the user's birthdate and their answers to the psychological test, and deliver a comprehensive personality profile.\nUse the following methodology for analysis:\n1. Astrological / Numerological profile based on their birthdate.\n2. Character traits, strengths, and hidden blind spots based on test answers.\n3. Actionable recommendation (1-3 tips) for daily life.\nKeep the tone helpful, professional, and slightly mystical but grounded in psychological insights.\nAt the end, ask if they have any follow-up questions about this analysis."
 )
 
