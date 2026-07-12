@@ -100,6 +100,66 @@ def get_chat_history(user_id):
         history.append({"role": "user" if role == "user" else "model", "parts": [content]})
     return history
 
+def send_split_message(chat_id, text, reply_to_message=None):
+    MAX_LENGTH = 4000
+    if len(text) <= MAX_LENGTH:
+        try:
+            if reply_to_message:
+                bot.reply_to(reply_to_message, text, parse_mode="Markdown")
+            else:
+                bot.send_message(chat_id, text, parse_mode="Markdown")
+        except Exception as telegram_err:
+            logging.warning(f"Failed to send with Markdown: {telegram_err}. Retrying as plain text.")
+            try:
+                if reply_to_message:
+                    bot.reply_to(reply_to_message, text)
+                else:
+                    bot.send_message(chat_id, text)
+            except Exception as e2:
+                logging.error(f"Failed to send plain text message: {e2}")
+        return
+
+    parts = []
+    remaining = text
+    while len(remaining) > 0:
+        if len(remaining) <= MAX_LENGTH:
+            parts.append(remaining)
+            break
+        split_idx = remaining.rfind('\n', 0, MAX_LENGTH)
+        if split_idx == -1:
+            split_idx = remaining.rfind(' ', 0, MAX_LENGTH)
+        if split_idx == -1 or split_idx < 2000:
+            split_idx = MAX_LENGTH
+        
+        parts.append(remaining[:split_idx])
+        remaining = remaining[split_idx:].lstrip()
+
+    first_part = parts[0]
+    try:
+        if reply_to_message:
+            bot.reply_to(reply_to_message, first_part, parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, first_part, parse_mode="Markdown")
+    except Exception as telegram_err:
+        logging.warning(f"Failed to send first chunk with Markdown: {telegram_err}. Retrying as plain text.")
+        try:
+            if reply_to_message:
+                bot.reply_to(reply_to_message, first_part)
+            else:
+                bot.send_message(chat_id, first_part)
+        except Exception as e2:
+            logging.error(f"Failed to send first chunk: {e2}")
+
+    for part in parts[1:]:
+        try:
+            bot.send_message(chat_id, part, parse_mode="Markdown")
+        except Exception as telegram_err:
+            logging.warning(f"Failed to send chunk with Markdown: {telegram_err}. Retrying as plain text.")
+            try:
+                bot.send_message(chat_id, part)
+            except Exception as e2:
+                logging.error(f"Failed to send chunk: {e2}")
+
 # Команда /start
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -153,11 +213,7 @@ def handle_chat(message):
         ai_response = response.text
         save_message(user_id, "model", ai_response)
         
-        try:
-            bot.reply_to(message, ai_response, parse_mode="Markdown")
-        except Exception as telegram_err:
-            logging.warning(f"Failed to send with Markdown parsing: {telegram_err}. Retrying with plain text.")
-            bot.reply_to(message, ai_response)
+        send_split_message(message.chat.id, ai_response, message)
         
     except Exception as e:
         error_msg = str(e)
