@@ -8,8 +8,12 @@ import google.generativeai as genai
 
 # Настройки конфигурации
 API_TOKEN = os.getenv("TELEGRAM_TOKEN", "BOT_TOKEN_PLACEHOLDER")
+if API_TOKEN:
+    API_TOKEN = API_TOKEN.strip().strip('"' + "'")
 INVITE_CODE = "start"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "ВАШ_GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    GEMINI_API_KEY = GEMINI_API_KEY.strip().strip('"' + "'")
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,7 +35,7 @@ if not GEMINI_API_KEY or "ВАШ_GEMINI_API_KEY" in GEMINI_API_KEY:
 # Инициализация ИИ
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
+    model_name="gemini-2.5-flash",
     system_instruction="You are an expert diagnostic assistant. Your task is to analyze the user's birthdate and their answers to the psychological test, and deliver a comprehensive personality profile.\nUse the following methodology for analysis:\n1. Astrological / Numerological profile based on their birthdate.\n2. Character traits, strengths, and hidden blind spots based on test answers.\n3. Actionable recommendation (1-3 tips) for daily life.\nKeep the tone helpful, professional, and slightly mystical but grounded in psychological insights.\nAt the end, ask if they have any follow-up questions about this analysis."
 )
 
@@ -155,20 +159,23 @@ def handle_chat(message):
         error_msg = str(e)
         logging.error(f"Error calling Gemini: {error_msg}")
         
-        if "api_key_invalid" in error_msg.lower() or "api key" in error_msg.lower() or "not found" in error_msg.lower() or "invalid" in error_msg.lower():
+        # Детали ошибки для вывода пользователю
+        error_info = f"\n\nДетали ошибки от Google:\n`{error_msg}`"
+        
+        if "quota" in error_msg.lower() or "limit" in error_msg.lower() or "429" in error_msg:
             bot.reply_to(
                 message,
-                "⚠️ Ошибка ИИ: Проблема с API-ключом Gemini!\n\nПожалуйста, убедитесь, что вы правильно добавили переменную окружения GEMINI_API_KEY в настройках Render (вкладка Environment) и перезапустили деплой."
+                f"⚠️ Ошибка ИИ: Превышен лимит запросов (Quota Exceeded)!{error_info}\n\nПожалуйста, проверьте ваш лимит запросов Gemini или создайте новый API-ключ в Google AI Studio."
             )
-        elif "quota" in error_msg.lower() or "limit" in error_msg.lower() or "429" in error_msg:
+        elif "api_key_invalid" in error_msg.lower() or "api key" in error_msg.lower() or "invalid" in error_msg.lower():
             bot.reply_to(
                 message,
-                "⚠️ Ошибка ИИ: Превышен лимит запросов (Quota Exceeded)!\n\nПожалуйста, проверьте ваш лимит запросов Gemini или создайте новый API-ключ в Google AI Studio."
+                f"⚠️ Ошибка ИИ: Недействительный или заблокированный API-ключ!{error_info}\n\nПожалуйста, убедитесь, что вы правильно вставили ключ и перезапустили деплой на Render."
             )
         else:
             bot.reply_to(
                 message,
-                f"⚠️ Ошибка при запросе к ИИ:\n\n`{error_msg}`\n\nПожалуйста, убедитесь, что вы добавили переменную окружения GEMINI_API_KEY в настройках Render!"
+                f"⚠️ Ошибка при запросе к ИИ:{error_info}\n\nПожалуйста, убедитесь, что вы добавили переменную окружения GEMINI_API_KEY в настройках Render!"
             )
 
 # Простой веб-сервер для прохождения Port Check на Render.com (запускается в фоновом потоке)
