@@ -153,7 +153,11 @@ def handle_chat(message):
         ai_response = response.text
         save_message(user_id, "model", ai_response)
         
-        bot.reply_to(message, ai_response, parse_mode="Markdown")
+        try:
+            bot.reply_to(message, ai_response, parse_mode="Markdown")
+        except Exception as telegram_err:
+            logging.warning(f"Failed to send with Markdown parsing: {telegram_err}. Retrying with plain text.")
+            bot.reply_to(message, ai_response)
         
     except Exception as e:
         error_msg = str(e)
